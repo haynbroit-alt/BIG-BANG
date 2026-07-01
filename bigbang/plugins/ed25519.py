@@ -10,6 +10,7 @@ DESCRIPTION = "Cryptographic proof ledger: Ed25519 signatures, action timestampi
 class Ed25519Plugin(BangPlugin):
     NAME = NAME
     DESCRIPTION = DESCRIPTION
+    REQUIRES = ["backend"]
 
     @classmethod
     def is_active(cls, universe: Universe) -> bool:

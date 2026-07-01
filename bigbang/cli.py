@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import sys
-import time
 
 import click
 
-from . import parser, generator
+from . import parser
+from . import pipeline as pp
 from .plugins import registry
 
 BANNER = r"""
@@ -19,26 +19,27 @@ BANNER = r"""
 
 @click.group()
 def cli():
-    """💥 BIG BANG — Universe as Code. One YAML file. Infinite worlds."""
+    """BIG BANG — Universe as Code. One YAML file. Infinite worlds."""
 
 
 @cli.command()
 @click.argument("genesis_file", type=click.Path(exists=True))
 @click.option("--output", "-o", default=".", show_default=True, help="Output directory")
 @click.option("--force", "-f", is_flag=True, help="Overwrite all files, including user edits")
-@click.option("--dry-run", "-n", is_flag=True, help="Preview files that would be generated")
-def bang(genesis_file: str, output: str, force: bool, dry_run: bool) -> None:
-    """Create or update a universe from a genesis.yaml file.
+@click.option("--dry-run", "-n", is_flag=True, help="Preview files without writing them")
+@click.option("--verbose", "-v", is_flag=True, help="Show all diagnostics (including info)")
+def bang(genesis_file: str, output: str, force: bool, dry_run: bool, verbose: bool) -> None:
+    """Compile a genesis.yaml into a deployable universe.
 
     \b
-    On first run, all files are generated.
-    On subsequent runs, files you have edited are preserved — only
-    unmodified generated files are updated. Use --force to overwrite all.
+    First run   — all files generated from scratch.
+    Subsequent  — block-merged files regenerated; user-edited files preserved.
+    --force     — overwrite everything, including user edits.
 
     \b
     Examples:
       big-bang bang genesis.yaml
-      big-bang bang genesis.yaml --output ./projects
+      big-bang bang examples/saas_crm.yaml --output ./projects
       big-bang bang genesis.yaml --dry-run
       big-bang bang genesis.yaml --force
     """
@@ -48,76 +49,117 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool) -> None:
     if dry_run:
         click.secho("  DRY RUN — no files will be written\n", fg="yellow")
 
-    click.echo(f"  {click.style('Parsing', fg='cyan')} {genesis_file} ...")
+    click.echo(f"  {click.style('Compiling', fg='cyan')} {genesis_file} ...\n")
 
-    try:
-        universe = parser.parse(genesis_file)
-    except (FileNotFoundError, ValueError) as exc:
-        click.secho(f"\n  ERROR: {exc}", fg="red", bold=True)
+    # Run the full compilation pipeline
+    result = pp.compile(genesis_file, output, force=force, dry_run=dry_run)
+
+    # ── Errors & warnings ─────────────────────────────────────────────────────
+    for d in result.warnings:
+        click.secho(d.coloured(), fg="yellow")
+    if result.warnings:
+        click.echo()
+
+    if result.errors:
+        for d in result.errors:
+            click.secho(d.coloured(), fg="red")
+        click.echo()
+        click.secho("  Compilation failed.", fg="red", bold=True)
         sys.exit(1)
 
-    click.echo(f"\n  Universe  : {click.style(universe.name, fg='yellow', bold=True)}")
-    click.echo(f"  Type      : {universe.type}")
-    click.echo(f"  Entities  : {', '.join(e.name for e in universe.entities) or 'none'}")
-    click.echo(f"  Flows     : {', '.join(f.name for f in universe.flows) or 'none'}")
-    if universe.auth.enabled:
-        click.echo(f"  Auth      : {universe.auth.provider.upper()}")
-    if universe.security.ed25519:
-        click.echo(f"  Security  : Ed25519 proof ledger")
-    if universe.monetization:
-        click.echo(f"  Plans     : {', '.join(p.name for p in universe.monetization.plans)}")
+    # ── Universe summary (available after parse phase) ─────────────────────────
+    u = result.universe
+    if u:
+        click.echo(f"  Universe  : {click.style(u.name, fg='yellow', bold=True)}")
+        click.echo(f"  Type      : {u.type}")
+        entity_line = ", ".join(e.name for e in u.ordered_entities()) or "none"
+        click.echo(f"  Entities  : {entity_line}")
+        click.echo(f"  Flows     : {', '.join(f.name for f in u.flows) or 'none'}")
+        if u.auth.enabled:
+            click.echo(f"  Auth      : {u.auth.provider.upper()}")
+        if u.security.ed25519:
+            click.echo(f"  Security  : Ed25519 proof ledger")
+        if u.monetization:
+            click.echo(f"  Plans     : {', '.join(p.name for p in u.monetization.plans)}")
+        # Relation summary
+        total_rels = sum(len(e.relations) for e in u.entities)
+        if total_rels:
+            click.echo(f"  Relations : {total_rels} inferred")
+        click.echo()
 
-    active = registry.active_for(universe)
-    click.echo(f"\n  Plugins   : {', '.join(p['name'] for p in active)}")
-    click.echo()
-
-    for plugin in active:
-        click.echo(f"  {click.style('>', fg='green', bold=True)} {plugin['name']} — {plugin['description']}")
-        time.sleep(0.06)
-
-    click.echo()
-
-    try:
-        output_path, written, skipped = generator.generate(
-            universe, output, force=force, dry_run=dry_run
+    # ── Phase timeline ────────────────────────────────────────────────────────
+    click.secho("  Compilation phases:", fg="white", bold=True)
+    for phase in result.phases:
+        failed = "FAILED" in phase.note
+        colour = "red" if failed else "green"
+        tick   = "✗" if failed else "✓"
+        note   = f"  {phase.note}" if phase.note else ""
+        click.echo(
+            f"  {click.style(tick, fg=colour)}  "
+            f"{click.style(phase.name, bold=True):<12}"
+            f"  {phase.duration_ms:5.0f}ms"
+            f"{click.style(note, fg='white' if not failed else 'red', dim=not failed)}"
         )
-    except Exception as exc:
-        click.secho(f"  ERROR: {exc}", fg="red", bold=True)
-        sys.exit(1)
+    click.echo()
+
+    # ── Verbose info diagnostics ──────────────────────────────────────────────
+    if verbose and result.infos:
+        click.secho("  Diagnostics:", fg="white", bold=True)
+        for d in result.infos:
+            click.echo(d.coloured())
+        click.echo()
+
+    # ── Diff summary (incremental) ────────────────────────────────────────────
+    if result.diff and not result.diff.is_empty:
+        click.secho("  Changes detected:", fg="cyan", bold=True)
+        for ed in result.diff.entity_deltas:
+            sym = {"added": "+", "removed": "-", "modified": "~"}[ed.kind]
+            parts = f" ({len(ed.field_deltas)} field change(s))" if ed.field_deltas else ""
+            click.echo(f"    {sym} {ed.name}{parts}")
+        click.echo()
 
     if dry_run:
         click.secho("  Files that would be generated:", fg="cyan", bold=True)
-        for f in written:
+        for f in result.written:
             click.echo(f"    {f}")
         click.echo()
-        click.secho(f"  {len(written)} files total. Run without --dry-run to create them.", fg="white")
+        click.secho(
+            f"  {len(result.written)} files total. Run without --dry-run to generate.",
+            fg="white",
+        )
         return
 
-    if skipped:
-        click.secho(f"  Preserved {len(skipped)} user-edited file(s):", fg="yellow")
-        for f in skipped:
+    if result.skipped:
+        click.secho(f"  Preserved {len(result.skipped)} user-edited file(s):", fg="yellow")
+        for f in result.skipped:
             click.echo(f"    ~ {f}")
         click.echo()
 
-    click.secho(f"  ✨ BIG BANG complete! {len(written)} file(s) written.", fg="magenta", bold=True)
-    click.echo(f"  Universe  : {click.style(str(output_path), fg='cyan', bold=True)}")
+    click.secho(
+        f"  ✨ Universe compiled — {len(result.written)} file(s) in {result.total_ms:.0f}ms.",
+        fg="magenta",
+        bold=True,
+    )
+    click.echo(f"  Output    : {click.style(str(result.output_path), fg='cyan', bold=True)}")
     click.echo()
     click.secho("  Next steps:", fg="white", bold=True)
-    click.echo(f"  1.  cd {output_path}")
+    click.echo(f"  1.  cd {result.output_path}")
     click.echo(f"  2.  cp .env.example .env")
     click.echo(f"  3.  docker-compose up -d")
     click.echo()
-    click.secho(f"  API  → http://localhost:8000/docs", fg="cyan")
-    click.secho(f"  App  → http://localhost:3000", fg="cyan")
+    click.secho("  API  → http://localhost:8000/docs", fg="cyan")
+    click.secho("  App  → http://localhost:3000", fg="cyan")
     click.echo()
 
 
 @cli.command(name="plugins")
 def list_plugins() -> None:
-    """List all registered plugins."""
+    """List all registered plugins with their dependency declarations."""
     click.secho("\n  Registered plugins:\n", fg="white", bold=True)
     for p in registry.all():
-        click.echo(f"  {click.style(p['name'], fg='cyan', bold=True)}")
+        name = click.style(p["name"], fg="cyan", bold=True)
+        requires = f"  requires: [{', '.join(p['requires'])}]" if p.get("requires") else ""
+        click.echo(f"  {name}{requires}")
         if p["description"]:
             click.echo(f"    {p['description']}")
     click.echo()
@@ -126,12 +168,6 @@ def list_plugins() -> None:
 # Keep `python -m bigbang.cli genesis.yaml` working as a shortcut for `bang`
 bang.name = "bang"
 cli.add_command(bang)
-
-# Convenience: `big-bang genesis.yaml` (no subcommand) falls through to `bang`
-@click.command(hidden=True)
-@click.pass_context
-def _compat(ctx):
-    pass
 
 
 if __name__ == "__main__":

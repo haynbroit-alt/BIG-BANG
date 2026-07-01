@@ -18,6 +18,7 @@ from bigbang.universe import Universe
 class BangPlugin(ABC):
     NAME: str = ""
     DESCRIPTION: str = ""
+    REQUIRES: list[str] = []  # names of other plugins that must run before this one
 
     @classmethod
     def is_active(cls, universe: Universe) -> bool:
