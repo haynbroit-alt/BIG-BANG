@@ -159,6 +159,47 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool, verbose: bo
     click.echo()
 
 
+@cli.command(name="serve")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Bind address")
+@click.option("--port", default=7432, show_default=True, help="TCP port")
+@click.option("--reload", is_flag=True, help="Auto-reload on code changes (dev mode)")
+def serve(host: str, port: int, reload: bool) -> None:
+    """Start the BIG BANG HTTP API server.
+
+    \b
+    Exposes the compiler pipeline over REST:
+      GET  /health          — liveness probe
+      GET  /plugins         — registered plugins
+      POST /validate        — parse + resolve, no output
+      POST /compile         — full 8-phase compilation
+      POST /compile/dry-run — list would-be files, no write
+
+    \b
+    Examples:
+      big-bang serve
+      big-bang serve --host 0.0.0.0 --port 8080
+      big-bang serve --reload
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        click.secho("  uvicorn is required: pip install uvicorn", fg="red")
+        sys.exit(1)
+
+    click.secho(BANNER, fg="magenta", bold=True)
+    click.secho("  Universe as Code — API mode\n", fg="white")
+    click.secho(f"  Listening on  http://{host}:{port}", fg="cyan", bold=True)
+    click.secho(f"  Docs          http://{host}:{port}/docs\n", fg="cyan")
+
+    uvicorn.run(
+        "bigbang.server:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info",
+    )
+
+
 @cli.command(name="plugins")
 def list_plugins() -> None:
     """List all registered plugins with their dependency declarations."""

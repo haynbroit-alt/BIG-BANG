@@ -14,9 +14,26 @@ setup(
         "Jinja2>=3.1.4",
         "click>=8.1.7",
     ],
+    extras_require={
+        "serve": [
+            "fastapi>=0.100.0",
+            "uvicorn[standard]>=0.23.0",
+            "python-multipart>=0.0.6",
+        ],
+        "studio": [
+            "fastapi>=0.100.0",
+            "uvicorn[standard]>=0.23.0",
+            "python-multipart>=0.0.6",
+            "anthropic>=0.40.0",
+        ],
+        "dev": [
+            "pytest>=7.0",
+            "httpx2",
+        ],
+    },
     entry_points={
         "console_scripts": [
-            "big-bang=bigbang.cli:bang",
+            "big-bang=bigbang.cli:cli",
         ],
     },
     python_requires=">=3.10",

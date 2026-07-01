@@ -14,6 +14,9 @@ from bigbang.universe import (
 VALID_FIELD_TYPES = {"string", "integer", "float", "boolean", "text", "datetime"}
 VALID_AUTH_PROVIDERS = {"jwt"}
 
+DSL_VERSION = "1.0"
+_SUPPORTED_VERSIONS = {"1.0"}
+
 
 def parse(genesis_file: str) -> Universe:
     path = Path(genesis_file)
@@ -26,7 +29,16 @@ def parse(genesis_file: str) -> Universe:
     if not spec or "universe" not in spec:
         raise ValueError("Invalid genesis file: missing top-level 'universe' key")
 
+    # Optional DSL version check — forward-compatible (unknown versions pass with a note)
+    declared = str(spec.get("bigbang", DSL_VERSION))
+    if declared not in _SUPPORTED_VERSIONS:
+        raise ValueError(
+            f"Unsupported DSL version '{declared}'. "
+            f"Supported: {', '.join(sorted(_SUPPORTED_VERSIONS))}"
+        )
+
     raw = spec["universe"]
+    raw["_dsl_version"] = declared
     _validate_raw(raw)
     return _build(raw)
 
@@ -82,6 +94,7 @@ def _build(raw: dict) -> Universe:
         auth=_build_auth(raw.get("auth", {})),
         security=_build_security(raw.get("security", {})),
         plugins=raw.get("plugins", []),
+        dsl_version=raw.get("_dsl_version", "1.0"),
     )
 
 
