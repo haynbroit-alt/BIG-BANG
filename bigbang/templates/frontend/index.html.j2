@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ universe.name }}</title>
+  <link rel="stylesheet" href="static/styles.css">
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <span class="logo-bang">💥</span>
+      <h1>{{ universe.name }}</h1>
+    </div>
+    <span class="badge">{{ universe.type }}</span>
+  </div>
+</header>
+
+<div class="layout">
+  <nav class="sidebar">
+    <p class="nav-label">Entities</p>
+{% for entity in universe.entities %}
+    <a href="#{{ entity.name | lower }}s" class="nav-item" onclick="showSection('{{ entity.name | lower }}s')">
+      {{ entity.name }}s
+    </a>
+{% endfor %}
+{% if universe.flows %}
+    <p class="nav-label">Workflows</p>
+    <a href="#flows" class="nav-item" onclick="showSection('flows')">Flows</a>
+{% endif %}
+{% if universe.monetization %}
+    <p class="nav-label">Business</p>
+    <a href="#pricing" class="nav-item" onclick="showSection('pricing')">Pricing</a>
+{% endif %}
+  </nav>
+
+  <main class="content">
+
+{% for entity in universe.entities %}
+    <!-- ── {{ entity.name }} ──────────────────────────────────────────── -->
+    <section id="{{ entity.name | lower }}s" class="panel">
+      <div class="panel-header">
+        <h2>{{ entity.name }}s</h2>
+        <button class="btn-ghost" onclick="load{{ entity.name }}s()">↻ Refresh</button>
+      </div>
+
+      <form id="form-{{ entity.name | lower }}" class="entity-form" onsubmit="createEntity(event, '{{ entity.name | lower }}s', load{{ entity.name }}s)">
+{% for field in entity.fields %}
+{% if not field.computed %}
+        <div class="field">
+          <label for="{{ entity.name | lower }}-{{ field.name }}">
+            {{ field.name }}{% if field.required %} <span class="required">*</span>{% endif %}
+          </label>
+          <input
+            id="{{ entity.name | lower }}-{{ field.name }}"
+            name="{{ field.name }}"
+            type="{{ 'number' if field.type in ('integer', 'float') else 'checkbox' if field.type == 'boolean' else 'text' }}"
+            {% if field.required %}required{% endif %}
+            placeholder="{{ field.name }}"
+          >
+        </div>
+{% endif %}
+{% endfor %}
+        <button type="submit" class="btn-primary">+ Create {{ entity.name }}</button>
+      </form>
+
+      <div id="{{ entity.name | lower }}s-grid" class="cards-grid"></div>
+    </section>
+{% endfor %}
+
+{% if universe.flows %}
+    <!-- ── Flows ──────────────────────────────────────────────────────── -->
+    <section id="flows" class="panel">
+      <div class="panel-header"><h2>Workflows</h2></div>
+{% for flow in universe.flows %}
+      <div class="flow-card">
+        <div class="flow-meta">
+          <h3>{{ flow.name }}</h3>
+          <span class="trigger-badge">{{ flow.trigger }}</span>
+        </div>
+        <div class="steps-row">
+{% for step in flow.steps %}
+          <div class="step">
+            <span class="step-num">{{ loop.index }}</span>
+            {{ step.action }}
+          </div>
+{% if not loop.last %}
+          <span class="step-arrow">→</span>
+{% endif %}
+{% endfor %}
+        </div>
+        <button class="btn-flow" onclick="executeFlow('{{ flow.name }}')">
+          ▶ Execute
+        </button>
+      </div>
+{% endfor %}
+    </section>
+{% endif %}
+
+{% if universe.monetization %}
+    <!-- ── Pricing ────────────────────────────────────────────────────── -->
+    <section id="pricing" class="panel">
+      <div class="panel-header"><h2>Pricing — {{ universe.monetization.model | title }}</h2></div>
+      <div class="plans-grid">
+{% for plan in universe.monetization.plans %}
+        <div class="plan-card{% if loop.index == 2 %} plan-featured{% endif %}">
+{% if loop.index == 2 %}<div class="plan-badge">Most Popular</div>{% endif %}
+          <h3>{{ plan.name }}</h3>
+          <div class="plan-price">{{ plan.price }}<span> {{ plan.currency }}/mo</span></div>
+          <button class="btn-primary" onclick="subscribe('{{ plan.name }}')">
+            Get {{ plan.name }}
+          </button>
+        </div>
+{% endfor %}
+      </div>
+    </section>
+{% endif %}
+
+  </main>
+</div>
+
+<div id="toast" class="toast" aria-live="polite"></div>
+
+<script src="static/app.js"></script>
+</body>
+</html>

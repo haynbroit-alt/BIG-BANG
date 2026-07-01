@@ -1,0 +1,54 @@
+universe:
+  name: "SwiftAudit"
+  type: "saas"
+
+  entities:
+    - name: "Site"
+      fields:
+        - name: "url"
+          type: "string"
+          required: true
+        - name: "label"
+          type: "string"
+          required: false
+        - name: "score"
+          type: "integer"
+          computed: true
+        - name: "status"
+          type: "string"
+          required: false
+
+    - name: "Report"
+      fields:
+        - name: "site_id"
+          type: "integer"
+          required: true
+        - name: "summary"
+          type: "text"
+          required: false
+        - name: "passed"
+          type: "boolean"
+          required: false
+
+  flows:
+    - name: "audit"
+      trigger: "user_submits_url"
+      steps:
+        - action: "validate_url"
+        - action: "scan_site"
+        - action: "compute_score"
+        - action: "generate_report"
+        - action: "send_email"
+
+  monetization:
+    model: "subscription"
+    plans:
+      - name: "Starter"
+        price: 9
+        currency: "EUR"
+      - name: "Pro"
+        price: 29
+        currency: "EUR"
+      - name: "Business"
+        price: 99
+        currency: "EUR"

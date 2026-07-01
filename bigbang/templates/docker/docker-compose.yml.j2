@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./{{ name_slug }}.db}
+{% if universe.monetization %}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-}
+{% endif %}
+    volumes:
+      - ./backend:/app
+{% if universe.monetization %}
+    depends_on:
+      db:
+        condition: service_healthy
+{% endif %}
+    restart: unless-stopped
+
+  frontend:
+    image: nginx:1.25-alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+{% if universe.monetization %}
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bigbang
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-singularity}
+      POSTGRES_DB: {{ name_slug }}_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bigbang"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+{% endif %}
+
+{% if universe.monetization %}
+volumes:
+  pgdata:
+{% endif %}
