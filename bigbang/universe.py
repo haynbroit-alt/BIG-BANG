@@ -2,7 +2,7 @@
 Universe IR — typed intermediate representation of a parsed genesis.yaml.
 
 This is the AST that flows through the compiler pipeline:
-    genesis.yaml → Parser → Universe → Plugin Pipeline → Generator → Output
+    genesis.yaml → Parser → Universe → Resolver → Plugin Engine → Emitter → Output
 """
 from dataclasses import dataclass, field
 from typing import Optional
@@ -17,9 +17,18 @@ class UniverseField:
 
 
 @dataclass
+class Relation:
+    """A resolved foreign-key relation inferred by the semantic resolver."""
+    field_name: str   # e.g. "contact_id"
+    target: str       # e.g. "Contact"  (target entity name)
+    kind: str = "many_to_one"
+
+
+@dataclass
 class Entity:
     name: str
     fields: list[UniverseField] = field(default_factory=list)
+    relations: list[Relation] = field(default_factory=list)  # populated by resolver
 
     @property
     def slug(self) -> str:
@@ -93,7 +102,19 @@ class Universe:
     auth: AuthConfig = field(default_factory=AuthConfig)
     security: Security = field(default_factory=Security)
     plugins: list[str] = field(default_factory=list)
+    topo_order: list[str] = field(default_factory=list)  # entity names, dependencies first
 
     @property
     def name_slug(self) -> str:
         return self.name.lower().replace(" ", "_").replace("-", "_")
+
+    @property
+    def entity_map(self) -> dict[str, Entity]:
+        return {e.name: e for e in self.entities}
+
+    def ordered_entities(self) -> list[Entity]:
+        """Return entities in topological order (dependencies first)."""
+        if not self.topo_order:
+            return self.entities
+        m = self.entity_map
+        return [m[n] for n in self.topo_order if n in m]

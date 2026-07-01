@@ -10,6 +10,7 @@ DESCRIPTION = "JWT auth: User model, register/login/me endpoints, bcrypt passwor
 class AuthPlugin(BangPlugin):
     NAME = NAME
     DESCRIPTION = DESCRIPTION
+    REQUIRES = ["backend"]
 
     @classmethod
     def is_active(cls, universe: Universe) -> bool:
