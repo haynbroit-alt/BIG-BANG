@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from bigbang.plugin_api import BangPlugin
 from bigbang.universe import Universe
+
+if TYPE_CHECKING:
+    from bigbang.ir import UniverseGraph
 
 NAME = "backend"
 DESCRIPTION = "FastAPI app, SQLAlchemy models, Pydantic schemas, CRUD + flow routes, Dockerfile"
@@ -10,6 +16,15 @@ DESCRIPTION = "FastAPI app, SQLAlchemy models, Pydantic schemas, CRUD + flow rou
 class BackendPlugin(BangPlugin):
     NAME = NAME
     DESCRIPTION = DESCRIPTION
+
+    @classmethod
+    def transform(cls, graph: "UniverseGraph") -> None:
+        from bigbang.ir import IRNode
+        graph.add_node(IRNode(
+            id="service:api",
+            kind="service",
+            data={"framework": "fastapi", "language": "python", "port": 8000},
+        ))
 
     @classmethod
     def get_files(cls, universe: Universe, output: Path) -> list[tuple[str, Path]]:
