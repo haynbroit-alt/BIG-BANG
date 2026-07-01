@@ -1,22 +1,17 @@
 """
-BIG BANG plugin system.
+BIG BANG plugin registry.
 
-A plugin is any Python module that exports:
-    NAME        str                 Unique identifier
-    is_active   (universe) -> bool  Whether to run for this universe
-    get_files   (universe, output, ctx) -> list[(template_name, Path)]
-                                    Template + destination pairs to render
+Plugins are the unit of capability in the compiler pipeline.
+Each plugin is a module that implements the BangPlugin interface
+(is_active, get_files, pip_requirements).
 
-Built-in plugins are registered here. External plugins are loaded by name
-via importlib when listed under `plugins:` in genesis.yaml.
+Built-in plugins are registered at import time.
+External plugins are loaded by module name via load_external().
 """
 import importlib
 from pathlib import Path
-from typing import Callable
 
-# Plugin interface type hints
-IsActiveFn = Callable[[dict], bool]
-GetFilesFn = Callable[[dict, Path, dict], list[tuple[str, Path]]]
+from bigbang.universe import Universe
 
 
 class _Registry:
@@ -27,34 +22,42 @@ class _Registry:
         name = getattr(module, "NAME", module.__name__)
         self._plugins[name] = {
             "name": name,
+            "description": getattr(module, "DESCRIPTION", ""),
             "is_active": module.is_active,
             "get_files": module.get_files,
-            "description": getattr(module, "DESCRIPTION", ""),
+            "pip_requirements": getattr(module, "pip_requirements", lambda u: []),
         }
 
     def load_external(self, module_name: str) -> None:
+        if module_name in self._plugins:
+            return
         try:
-            mod = importlib.import_module(module_name)
-            self.register(mod)
+            self.register(importlib.import_module(module_name))
         except ImportError as exc:
             raise ImportError(
                 f"Plugin '{module_name}' not found. "
                 f"Install it with: pip install {module_name}"
             ) from exc
 
-    def active_for(self, universe: dict) -> list[dict]:
+    def active_for(self, universe: Universe) -> list[dict]:
         return [p for p in self._plugins.values() if p["is_active"](universe)]
 
     def all(self) -> list[dict]:
         return list(self._plugins.values())
+
+    def collect_requirements(self, universe: Universe) -> list[str]:
+        reqs: list[str] = []
+        for p in self.active_for(universe):
+            reqs.extend(p["pip_requirements"](universe))
+        return reqs
 
 
 registry = _Registry()
 
 
 def _register_builtins() -> None:
-    from bigbang.plugins import backend, frontend, docker, docs, auth
-    for mod in (backend, frontend, docker, docs, auth):
+    from bigbang.plugins import backend, frontend, docker, docs, auth, ed25519
+    for mod in (backend, frontend, docker, docs, auth, ed25519):
         registry.register(mod)
 
 

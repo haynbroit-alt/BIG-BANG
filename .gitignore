@@ -7,3 +7,5 @@ build/
 .env
 *.db
 .DS_Store
+*.key
+*.ledger.jsonl

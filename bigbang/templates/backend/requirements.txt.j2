@@ -9,6 +9,9 @@ python-dotenv>=1.0.1
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 {% endif %}
+{% if universe.security.ed25519 %}
+cryptography>=42.0.0
+{% endif %}
 {% if universe.monetization %}
 stripe>=9.12.0
 {% endif %}

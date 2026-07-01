@@ -56,21 +56,16 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool) -> None:
         click.secho(f"\n  ERROR: {exc}", fg="red", bold=True)
         sys.exit(1)
 
-    name = universe["name"]
-    entities = universe.get("entities", [])
-    flows = universe.get("flows", [])
-    monetization = universe.get("monetization")
-    auth_cfg = universe.get("auth", {})
-
-    click.echo(f"\n  Universe  : {click.style(name, fg='yellow', bold=True)}")
-    click.echo(f"  Type      : {universe.get('type', 'unknown')}")
-    click.echo(f"  Entities  : {', '.join(e['name'] for e in entities) or 'none'}")
-    click.echo(f"  Flows     : {', '.join(f['name'] for f in flows) or 'none'}")
-    if auth_cfg.get("enabled"):
-        click.echo(f"  Auth      : {auth_cfg.get('provider', 'jwt').upper()}")
-    if monetization:
-        plans = monetization.get("plans", [])
-        click.echo(f"  Plans     : {', '.join(p['name'] for p in plans)}")
+    click.echo(f"\n  Universe  : {click.style(universe.name, fg='yellow', bold=True)}")
+    click.echo(f"  Type      : {universe.type}")
+    click.echo(f"  Entities  : {', '.join(e.name for e in universe.entities) or 'none'}")
+    click.echo(f"  Flows     : {', '.join(f.name for f in universe.flows) or 'none'}")
+    if universe.auth.enabled:
+        click.echo(f"  Auth      : {universe.auth.provider.upper()}")
+    if universe.security.ed25519:
+        click.echo(f"  Security  : Ed25519 proof ledger")
+    if universe.monetization:
+        click.echo(f"  Plans     : {', '.join(p.name for p in universe.monetization.plans)}")
 
     active = registry.active_for(universe)
     click.echo(f"\n  Plugins   : {', '.join(p['name'] for p in active)}")

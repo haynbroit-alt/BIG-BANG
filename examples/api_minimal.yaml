@@ -1,0 +1,39 @@
+universe:
+  name: TodoAPI
+  type: api
+
+  entities:
+    - name: Todo
+      fields:
+        - name: title
+          type: string
+          required: true
+        - name: description
+          type: text
+          required: false
+        - name: done
+          type: boolean
+          required: false
+
+    - name: Tag
+      fields:
+        - name: name
+          type: string
+          required: true
+        - name: color
+          type: string
+          required: false
+
+  flows: []
+  roles: []
+
+  auth:
+    enabled: false
+
+  security:
+    ed25519: false
+    ledger: false
+
+  monetization: ~
+
+  plugins: []

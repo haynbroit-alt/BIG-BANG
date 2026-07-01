@@ -1,0 +1,114 @@
+universe:
+  name: SwiftCRM
+  type: saas
+
+  entities:
+    - name: Contact
+      fields:
+        - name: first_name
+          type: string
+          required: true
+        - name: last_name
+          type: string
+          required: true
+        - name: email
+          type: string
+          required: true
+        - name: company
+          type: string
+          required: false
+        - name: phone
+          type: string
+          required: false
+        - name: notes
+          type: text
+          required: false
+
+    - name: Deal
+      fields:
+        - name: title
+          type: string
+          required: true
+        - name: value
+          type: float
+          required: true
+        - name: stage
+          type: string
+          required: true
+        - name: contact_id
+          type: integer
+          required: true
+        - name: closed_at
+          type: datetime
+          required: false
+
+    - name: Activity
+      fields:
+        - name: type
+          type: string
+          required: true
+        - name: subject
+          type: string
+          required: true
+        - name: deal_id
+          type: integer
+          required: false
+        - name: contact_id
+          type: integer
+          required: false
+        - name: completed
+          type: boolean
+          required: false
+
+  flows:
+    - name: qualify_lead
+      trigger: "Deal created with stage=new"
+      steps:
+        - action: "set_stage to 'qualified'"
+        - action: "notify_sales_team"
+        - action: "create_follow_up_activity"
+
+    - name: close_deal
+      trigger: "Deal stage changed to 'closed_won'"
+      steps:
+        - action: "record_revenue"
+        - action: "notify_finance"
+        - action: "generate_invoice"
+
+  roles:
+    - name: admin
+      permissions: ["read", "write", "delete"]
+    - name: sales
+      permissions: ["read", "write"]
+    - name: viewer
+      permissions: ["read"]
+
+  auth:
+    enabled: true
+    provider: jwt
+    user_fields:
+      - name: full_name
+        type: string
+        required: true
+      - name: role
+        type: string
+        required: true
+
+  security:
+    ed25519: true
+    ledger: true
+
+  monetization:
+    model: subscription
+    plans:
+      - name: starter
+        price: 29
+        currency: USD
+      - name: growth
+        price: 79
+        currency: USD
+      - name: enterprise
+        price: 299
+        currency: USD
+
+  plugins: []

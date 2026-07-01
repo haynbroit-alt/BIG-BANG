@@ -39,6 +39,10 @@ app.include_router(router, prefix="/api/v1")
 from auth_routes import router as auth_router  # noqa: E402
 app.include_router(auth_router, prefix="/api/v1")
 {% endif %}
+{% if universe.security.ed25519 %}
+from ledger_routes import router as ledger_router  # noqa: E402
+app.include_router(ledger_router, prefix="/api/v1")
+{% endif %}
 
 
 @app.get("/", tags=["health"])
@@ -51,5 +55,8 @@ def root():
         "api": "/api/v1",
 {% if universe.auth.enabled %}
         "auth": "/api/v1/auth",
+{% endif %}
+{% if universe.security.ed25519 %}
+        "ledger": "/api/v1/ledger",
 {% endif %}
     }
