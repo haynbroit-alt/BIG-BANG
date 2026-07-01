@@ -5,7 +5,7 @@ import time
 import click
 
 from . import parser, generator
-
+from .plugins import registry
 
 BANNER = r"""
   ██████╗ ██╗ ██████╗     ██████╗  █████╗ ███╗   ██╗ ██████╗
@@ -16,28 +16,37 @@ BANNER = r"""
   ╚═════╝ ╚═╝ ╚═════╝     ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
 """
 
-STEPS = [
-    ("Backend", "FastAPI + SQLAlchemy + Pydantic"),
-    ("Frontend", "Dashboard + JavaScript + CSS"),
-    ("Deployment", "Docker Compose + Dockerfile"),
-    ("Documentation", "README + API reference"),
-]
+
+@click.group()
+def cli():
+    """💥 BIG BANG — Universe as Code. One YAML file. Infinite worlds."""
 
 
-@click.command()
+@cli.command()
 @click.argument("genesis_file", type=click.Path(exists=True))
 @click.option("--output", "-o", default=".", show_default=True, help="Output directory")
-@click.option("--force", "-f", is_flag=True, help="Overwrite existing universe directory")
-def bang(genesis_file: str, output: str, force: bool) -> None:
-    """💥 BIG BANG — Create a universe from a genesis.yaml file.
+@click.option("--force", "-f", is_flag=True, help="Overwrite all files, including user edits")
+@click.option("--dry-run", "-n", is_flag=True, help="Preview files that would be generated")
+def bang(genesis_file: str, output: str, force: bool, dry_run: bool) -> None:
+    """Create or update a universe from a genesis.yaml file.
+
+    \b
+    On first run, all files are generated.
+    On subsequent runs, files you have edited are preserved — only
+    unmodified generated files are updated. Use --force to overwrite all.
 
     \b
     Examples:
-      big-bang genesis.yaml
-      big-bang genesis.yaml --output ./projects --force
+      big-bang bang genesis.yaml
+      big-bang bang genesis.yaml --output ./projects
+      big-bang bang genesis.yaml --dry-run
+      big-bang bang genesis.yaml --force
     """
     click.secho(BANNER, fg="magenta", bold=True)
-    click.secho("  The Universe Generator — One file. Infinite worlds.\n", fg="white")
+    click.secho("  Universe as Code — One file. Infinite worlds.\n", fg="white")
+
+    if dry_run:
+        click.secho("  DRY RUN — no files will be written\n", fg="yellow")
 
     click.echo(f"  {click.style('Parsing', fg='cyan')} {genesis_file} ...")
 
@@ -47,48 +56,83 @@ def bang(genesis_file: str, output: str, force: bool) -> None:
         click.secho(f"\n  ERROR: {exc}", fg="red", bold=True)
         sys.exit(1)
 
-    name = universe["name"]
-    entities = universe.get("entities", [])
-    flows = universe.get("flows", [])
-    monetization = universe.get("monetization")
+    click.echo(f"\n  Universe  : {click.style(universe.name, fg='yellow', bold=True)}")
+    click.echo(f"  Type      : {universe.type}")
+    click.echo(f"  Entities  : {', '.join(e.name for e in universe.entities) or 'none'}")
+    click.echo(f"  Flows     : {', '.join(f.name for f in universe.flows) or 'none'}")
+    if universe.auth.enabled:
+        click.echo(f"  Auth      : {universe.auth.provider.upper()}")
+    if universe.security.ed25519:
+        click.echo(f"  Security  : Ed25519 proof ledger")
+    if universe.monetization:
+        click.echo(f"  Plans     : {', '.join(p.name for p in universe.monetization.plans)}")
 
-    click.echo(f"\n  Universe  : {click.style(name, fg='yellow', bold=True)}")
-    click.echo(f"  Type      : {universe.get('type', 'unknown')}")
-    click.echo(f"  Entities  : {', '.join(e['name'] for e in entities) or 'none'}")
-    click.echo(f"  Flows     : {', '.join(f['name'] for f in flows) or 'none'}")
-    if monetization:
-        plans = monetization.get("plans", [])
-        click.echo(f"  Plans     : {', '.join(p['name'] for p in plans)}")
+    active = registry.active_for(universe)
+    click.echo(f"\n  Plugins   : {', '.join(p['name'] for p in active)}")
     click.echo()
 
-    for label, detail in STEPS:
-        click.echo(f"  {click.style('>', fg='green', bold=True)} Generating {label} ({detail}) ...")
-        time.sleep(0.08)
+    for plugin in active:
+        click.echo(f"  {click.style('>', fg='green', bold=True)} {plugin['name']} — {plugin['description']}")
+        time.sleep(0.06)
 
     click.echo()
 
     try:
-        output_path = generator.generate(universe, output, force=force)
-    except FileExistsError as exc:
-        click.secho(f"  ERROR: {exc}", fg="red", bold=True)
-        click.secho("  Use --force to overwrite.", fg="yellow")
-        sys.exit(1)
+        output_path, written, skipped = generator.generate(
+            universe, output, force=force, dry_run=dry_run
+        )
     except Exception as exc:
-        click.secho(f"  ERROR: Unexpected failure — {exc}", fg="red", bold=True)
+        click.secho(f"  ERROR: {exc}", fg="red", bold=True)
         sys.exit(1)
 
-    click.secho(f"  ✨ BIG BANG complete!", fg="magenta", bold=True)
-    click.echo(f"  Universe born in: {click.style(str(output_path), fg='cyan', bold=True)}")
+    if dry_run:
+        click.secho("  Files that would be generated:", fg="cyan", bold=True)
+        for f in written:
+            click.echo(f"    {f}")
+        click.echo()
+        click.secho(f"  {len(written)} files total. Run without --dry-run to create them.", fg="white")
+        return
+
+    if skipped:
+        click.secho(f"  Preserved {len(skipped)} user-edited file(s):", fg="yellow")
+        for f in skipped:
+            click.echo(f"    ~ {f}")
+        click.echo()
+
+    click.secho(f"  ✨ BIG BANG complete! {len(written)} file(s) written.", fg="magenta", bold=True)
+    click.echo(f"  Universe  : {click.style(str(output_path), fg='cyan', bold=True)}")
     click.echo()
     click.secho("  Next steps:", fg="white", bold=True)
     click.echo(f"  1.  cd {output_path}")
-    click.echo(f"  2.  cp .env.example .env     # configure environment")
-    click.echo(f"  3.  docker-compose up -d     # ignite the universe")
+    click.echo(f"  2.  cp .env.example .env")
+    click.echo(f"  3.  docker-compose up -d")
     click.echo()
     click.secho(f"  API  → http://localhost:8000/docs", fg="cyan")
     click.secho(f"  App  → http://localhost:3000", fg="cyan")
     click.echo()
 
 
+@cli.command(name="plugins")
+def list_plugins() -> None:
+    """List all registered plugins."""
+    click.secho("\n  Registered plugins:\n", fg="white", bold=True)
+    for p in registry.all():
+        click.echo(f"  {click.style(p['name'], fg='cyan', bold=True)}")
+        if p["description"]:
+            click.echo(f"    {p['description']}")
+    click.echo()
+
+
+# Keep `python -m bigbang.cli genesis.yaml` working as a shortcut for `bang`
+bang.name = "bang"
+cli.add_command(bang)
+
+# Convenience: `big-bang genesis.yaml` (no subcommand) falls through to `bang`
+@click.command(hidden=True)
+@click.pass_context
+def _compat(ctx):
+    pass
+
+
 if __name__ == "__main__":
-    bang()
+    cli()
