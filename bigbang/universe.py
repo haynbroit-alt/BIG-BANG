@@ -103,6 +103,7 @@ class Universe:
     security: Security = field(default_factory=Security)
     plugins: list[str] = field(default_factory=list)
     topo_order: list[str] = field(default_factory=list)  # entity names, dependencies first
+    dsl_version: str = "1.0"
 
     @property
     def name_slug(self) -> str:
