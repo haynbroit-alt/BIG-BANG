@@ -2,6 +2,26 @@ universe:
   name: "SwiftAudit"
   type: "saas"
 
+  # ── Authentication ───────────────────────────────────────────────────────────
+  auth:
+    enabled: true
+    provider: "jwt"
+    user_fields:
+      - name: "full_name"
+        type: "string"
+        required: false
+      - name: "company"
+        type: "string"
+        required: false
+
+  # ── Roles & Permissions ──────────────────────────────────────────────────────
+  roles:
+    - name: "admin"
+      permissions: ["*"]
+    - name: "user"
+      permissions: ["read", "create"]
+
+  # ── Data Model ───────────────────────────────────────────────────────────────
   entities:
     - name: "Site"
       fields:
@@ -30,6 +50,7 @@ universe:
           type: "boolean"
           required: false
 
+  # ── Business Workflows ───────────────────────────────────────────────────────
   flows:
     - name: "audit"
       trigger: "user_submits_url"
@@ -40,6 +61,7 @@ universe:
         - action: "generate_report"
         - action: "send_email"
 
+  # ── Monetization ─────────────────────────────────────────────────────────────
   monetization:
     model: "subscription"
     plans:
@@ -52,3 +74,8 @@ universe:
       - name: "Business"
         price: 99
         currency: "EUR"
+
+  # ── Security ─────────────────────────────────────────────────────────────────
+  security:
+    ed25519: false
+    ledger: false

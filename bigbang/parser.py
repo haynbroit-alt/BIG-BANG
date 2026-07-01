@@ -2,7 +2,8 @@ import yaml
 from pathlib import Path
 
 VALID_FIELD_TYPES = {"string", "integer", "float", "boolean", "text", "datetime"}
-VALID_UNIVERSE_TYPES = {"saas", "api", "blockchain", "marketplace", "social", "tool"}
+VALID_AUTH_PROVIDERS = {"jwt"}
+VALID_ROLE_PERMISSIONS = {"*", "read", "create", "update", "delete"}
 
 
 def parse(genesis_file: str) -> dict:
@@ -44,13 +45,36 @@ def _validate(universe: dict) -> None:
     for flow in universe.get("flows", []):
         if "name" not in flow:
             raise ValueError("Each flow must have a 'name'")
-        if "steps" not in flow or not flow["steps"]:
+        if not flow.get("steps"):
             raise ValueError(f"Flow '{flow['name']}' must have at least one step")
+
+    auth = universe.get("auth", {})
+    if auth.get("enabled"):
+        provider = auth.get("provider", "jwt")
+        if provider not in VALID_AUTH_PROVIDERS:
+            raise ValueError(
+                f"Invalid auth provider '{provider}'. "
+                f"Valid providers: {', '.join(sorted(VALID_AUTH_PROVIDERS))}"
+            )
+        for field in auth.get("user_fields", []):
+            if "name" not in field:
+                raise ValueError("Each auth.user_fields entry must have a 'name'")
+            ftype = field.get("type", "string")
+            if ftype not in VALID_FIELD_TYPES:
+                raise ValueError(
+                    f"Invalid type '{ftype}' for auth user field '{field['name']}'"
+                )
+
+    for role in universe.get("roles", []):
+        if "name" not in role:
+            raise ValueError("Each role must have a 'name'")
 
 
 def _normalize(universe: dict) -> None:
     universe.setdefault("entities", [])
     universe.setdefault("flows", [])
+    universe.setdefault("roles", [])
+    universe.setdefault("plugins", [])
 
     for entity in universe["entities"]:
         entity.setdefault("fields", [])
@@ -62,3 +86,21 @@ def _normalize(universe: dict) -> None:
         flow.setdefault("trigger", "manual")
         for step in flow.get("steps", []):
             step.setdefault("action", "noop")
+
+    auth = universe.get("auth", {})
+    if auth:
+        auth.setdefault("enabled", False)
+        auth.setdefault("provider", "jwt")
+        auth.setdefault("user_fields", [])
+        for field in auth["user_fields"]:
+            field.setdefault("type", "string")
+            field.setdefault("required", False)
+        universe["auth"] = auth
+
+    for role in universe["roles"]:
+        role.setdefault("permissions", ["read", "create"])
+
+    security = universe.get("security", {})
+    security.setdefault("ed25519", False)
+    security.setdefault("ledger", False)
+    universe["security"] = security
