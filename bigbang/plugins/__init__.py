@@ -122,7 +122,8 @@ class _Registry:
             "description":      cls.DESCRIPTION,
             "requires":         list(cls.REQUIRES),
             "is_active":        cls.is_active,
-            "get_files":        cls.get_files,
+            "transform":        cls.transform,   # pure IR mutation — Phase 5
+            "get_files":        cls.get_files,   # backward compat only
             "pip_requirements": cls.pip_requirements,
             "post_generate":    cls.post_generate,
         }

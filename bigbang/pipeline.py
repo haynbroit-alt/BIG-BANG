@@ -3,15 +3,23 @@ BIG BANG Compilation Pipeline — multi-pass compiler orchestration.
 
 Phases
 ------
-1. Parse      YAML → raw dict → Universe IR
+1. Parse      YAML → Universe IR
 2. Resolve    Semantic analysis: relations, dependency graph, topo sort
 3. Schedule   Plugin dependency resolution, topological load order
-4. Diff       Compare to previous snapshot (incremental compilation)
-5. Emit       Render templates — block-merge or file-lock strategy
-6. Snapshot   Persist Universe IR for the next run
+4. Build      Universe IR → UniverseGraph (raw)
+5. Transform  Plugin passes: each plugin enriches the graph (IR → IR)
+6. Diff       Compare to previous snapshot (incremental compilation)
+7. Emit       Emitters read the final graph → (template, path) pairs → files
+8. Snapshot   Persist Universe IR for the next run
 
-The pipeline returns a CompilationResult with per-phase timing, diagnostics,
-the Universe diff, and the lists of written / skipped files.
+Architecture contract
+---------------------
+- Plugins   : format-agnostic IR transformations   (add nodes/edges)
+- Emitters  : format-specific output generators    (read graph → files)
+- Templates : receive both `universe` and `graph` in context
+
+This separation guarantees: adding a NestJS backend requires only a new
+emitter, zero changes to any plugin.
 """
 import time
 from dataclasses import dataclass, field
@@ -19,9 +27,12 @@ from pathlib import Path
 from typing import Optional
 
 from bigbang import lock, merger, snapshot
-from bigbang.diagnostics import CompilationError, Diagnostic, DiagnosticEngine
+from bigbang.diagnostics import Diagnostic, DiagnosticEngine
 from bigbang.differ import UniverseDiff
 from bigbang.differ import diff as compute_diff
+from bigbang.emitters import emitter_registry
+from bigbang.ir import UniverseGraph
+from bigbang.ir_builder import build_graph
 from bigbang.parser import parse as _parse
 from bigbang.plugins import registry
 from bigbang.resolver import resolve
@@ -53,6 +64,7 @@ class PhaseResult:
 class CompilationResult:
     output_path: Path
     universe: Optional[Universe] = None
+    graph: Optional[UniverseGraph] = None
     written: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     diagnostics: list[Diagnostic] = field(default_factory=list)
@@ -77,8 +89,8 @@ class CompilationResult:
 
 class Pipeline:
     """
-    Stateless compiler pipeline.  A single Pipeline instance can compile
-    multiple universes — it holds only the pre-built Jinja2 environment.
+    Stateless compiler pipeline.  One instance can compile multiple universes.
+    Holds only the pre-built Jinja2 environment (expensive to construct).
     """
 
     def __init__(self) -> None:
@@ -98,59 +110,52 @@ class Pipeline:
         # ── Phase 1: Parse ────────────────────────────────────────────────────
         universe, output = self._phase_parse(genesis_file, output_dir, diags, phases, t_start)
         if universe is None:
-            return CompilationResult(
-                output_path=output,
-                diagnostics=diags.all,
-                phases=phases,
-                total_ms=_ms(t_start),
-            )
+            return CompilationResult(output_path=output, diagnostics=diags.all,
+                                     phases=phases, total_ms=_ms(t_start))
 
         # ── Phase 2: Resolve ──────────────────────────────────────────────────
         self._phase_resolve(universe, diags, phases)
         if diags.has_errors:
-            return CompilationResult(
-                output_path=output,
-                universe=universe,
-                diagnostics=diags.all,
-                phases=phases,
-                total_ms=_ms(t_start),
-            )
+            return CompilationResult(output_path=output, universe=universe,
+                                     diagnostics=diags.all, phases=phases,
+                                     total_ms=_ms(t_start))
 
         # ── Phase 3: Schedule ─────────────────────────────────────────────────
         active_plugins = self._phase_schedule(universe, diags, phases)
         if diags.has_errors:
-            return CompilationResult(
-                output_path=output,
-                universe=universe,
-                diagnostics=diags.all,
-                phases=phases,
-                total_ms=_ms(t_start),
-            )
+            return CompilationResult(output_path=output, universe=universe,
+                                     diagnostics=diags.all, phases=phases,
+                                     total_ms=_ms(t_start))
 
-        # ── Phase 4: Diff ─────────────────────────────────────────────────────
+        # ── Phase 4: Build graph ──────────────────────────────────────────────
+        graph = self._phase_build(universe, phases)
+
+        # ── Phase 5: Transform (plugin passes) ───────────────────────────────
+        self._phase_transform(active_plugins, graph, phases)
+
+        # ── Phase 6: Diff ─────────────────────────────────────────────────────
         udiff = self._phase_diff(universe, output, dry_run, phases)
 
         if dry_run:
-            pairs = [f for p in active_plugins for f in p["get_files"](universe, output)]
+            active_emitters = emitter_registry.active_for(graph)
+            pairs = [p for em in active_emitters for p in em.get_pairs(graph, output)]
             return CompilationResult(
-                output_path=output,
-                universe=universe,
+                output_path=output, universe=universe, graph=graph,
                 written=[str(d) for _, d in pairs],
-                diagnostics=diags.all,
-                diff=udiff,
-                phases=phases,
+                diagnostics=diags.all, diff=udiff, phases=phases,
                 total_ms=_ms(t_start),
             )
 
-        # ── Phase 5: Emit ─────────────────────────────────────────────────────
-        written, skipped = self._phase_emit(universe, active_plugins, output, force, phases)
+        # ── Phase 7: Emit ─────────────────────────────────────────────────────
+        written, skipped = self._phase_emit(universe, graph, output, force, phases)
 
-        # ── Phase 6: Snapshot ─────────────────────────────────────────────────
+        # ── Phase 8: Snapshot ─────────────────────────────────────────────────
         self._phase_snapshot(universe, output, phases)
 
         return CompilationResult(
             output_path=output,
             universe=universe,
+            graph=graph,
             written=[str(p.relative_to(output)) for p in written],
             skipped=skipped,
             diagnostics=diags.all,
@@ -178,19 +183,14 @@ class Pipeline:
             return None, Path(output_dir)
 
         output = Path(output_dir) / f"universe_{universe.name_slug}"
+        n = len(universe.entities)
         phases.append(PhaseResult(
-            "Parse",
-            _ms(t),
-            f"{universe.name} · {universe.type} · {len(universe.entities)} entit{'y' if len(universe.entities)==1 else 'ies'}",
+            "Parse", _ms(t),
+            f"{universe.name} · {universe.type} · {n} entit{'y' if n == 1 else 'ies'}",
         ))
         return universe, output
 
-    def _phase_resolve(
-        self,
-        universe: Universe,
-        diags: DiagnosticEngine,
-        phases: list,
-    ) -> None:
+    def _phase_resolve(self, universe: Universe, diags: DiagnosticEngine, phases: list) -> None:
         t = time.perf_counter()
         resolve(universe, diags)
         rel_count = sum(len(e.relations) for e in universe.entities)
@@ -217,6 +217,34 @@ class Pipeline:
         phases.append(PhaseResult("Schedule", _ms(t), f"{len(active)} plugin(s): {load_order}"))
         return active
 
+    def _phase_build(self, universe: Universe, phases: list) -> UniverseGraph:
+        t = time.perf_counter()
+        graph = build_graph(universe)
+        n_nodes = len(graph.all_nodes())
+        n_edges = len(graph.edges_of_kind("relation")) + len(graph.edges_of_kind("permission"))
+        phases.append(PhaseResult(
+            "Build", _ms(t),
+            f"{n_nodes} node(s), {n_edges} edge(s)",
+        ))
+        return graph
+
+    def _phase_transform(self, active_plugins: list[dict], graph: UniverseGraph, phases: list) -> None:
+        t = time.perf_counter()
+        transforms_run = 0
+        nodes_before = len(graph.all_nodes())
+
+        for plugin in active_plugins:
+            transform_fn = plugin.get("transform")
+            if callable(transform_fn):
+                transform_fn(graph)
+                transforms_run += 1
+
+        nodes_added = len(graph.all_nodes()) - nodes_before
+        phases.append(PhaseResult(
+            "Transform", _ms(t),
+            f"{transforms_run} transform(s) · +{nodes_added} node(s) added",
+        ))
+
     def _phase_diff(
         self,
         universe: Universe,
@@ -239,7 +267,7 @@ class Pipeline:
     def _phase_emit(
         self,
         universe: Universe,
-        active_plugins: list[dict],
+        graph: UniverseGraph,
         output: Path,
         force: bool,
         phases: list,
@@ -249,14 +277,17 @@ class Pipeline:
         for d in [output / "backend", output / "frontend" / "static"]:
             d.mkdir(parents=True, exist_ok=True)
 
-        ctx = {"universe": universe, "name_slug": universe.name_slug}
+        # Emitters read the final graph — plugins have already transformed it
+        active_emitters = emitter_registry.active_for(graph)
+        pairs: list[tuple[str, Path]] = []
+        for emitter in active_emitters:
+            pairs.extend(emitter.get_pairs(graph, output))
+
+        # Template context: both universe (backward compat) and graph (new)
+        ctx = {"universe": universe, "graph": graph, "name_slug": universe.name_slug}
         lock_data = {} if force else lock.load(output)
         written: list[Path] = []
         skipped: list[str] = []
-
-        pairs: list[tuple[str, Path]] = []
-        for plugin in active_plugins:
-            pairs.extend(plugin["get_files"](universe, output))
 
         for template_name, dest in pairs:
             rel = str(dest.relative_to(output))
@@ -280,10 +311,9 @@ class Pipeline:
 
         lock.save(output, universe.name, written)
 
-        for plugin in active_plugins:
-            post = plugin.get("post_generate")
-            if callable(post):
-                post(universe, output)
+        # Post-emit hooks
+        for emitter in active_emitters:
+            emitter.post_emit(graph, output)
 
         note = f"{len(written)} written"
         if skipped:
@@ -328,5 +358,5 @@ def compile(
     force: bool = False,
     dry_run: bool = False,
 ) -> CompilationResult:
-    """Compile a genesis.yaml file into a universe. Module-level convenience wrapper."""
+    """Compile a genesis.yaml into a universe. Module-level convenience wrapper."""
     return _pipeline.compile(genesis_file, output_dir, force=force, dry_run=dry_run)

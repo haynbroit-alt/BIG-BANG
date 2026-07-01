@@ -67,8 +67,9 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool, verbose: bo
         click.secho("  Compilation failed.", fg="red", bold=True)
         sys.exit(1)
 
-    # ── Universe summary (available after parse phase) ─────────────────────────
+    # ── Universe summary ──────────────────────────────────────────────────────
     u = result.universe
+    g = result.graph
     if u:
         click.echo(f"  Universe  : {click.style(u.name, fg='yellow', bold=True)}")
         click.echo(f"  Type      : {u.type}")
@@ -81,10 +82,16 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool, verbose: bo
             click.echo(f"  Security  : Ed25519 proof ledger")
         if u.monetization:
             click.echo(f"  Plans     : {', '.join(p.name for p in u.monetization.plans)}")
-        # Relation summary
         total_rels = sum(len(e.relations) for e in u.entities)
         if total_rels:
             click.echo(f"  Relations : {total_rels} inferred")
+    if g:
+        n_nodes = len(g.all_nodes())
+        n_edges = sum(1 for _ in g.edges_of_kind("relation")) + \
+                  sum(1 for _ in g.edges_of_kind("signs")) + \
+                  sum(1 for _ in g.edges_of_kind("owns"))
+        click.echo(f"  IR Graph  : {n_nodes} nodes · {n_edges} edges")
+    if u or g:
         click.echo()
 
     # ── Phase timeline ────────────────────────────────────────────────────────
