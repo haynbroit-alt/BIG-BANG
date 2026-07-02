@@ -14,9 +14,12 @@ setup(
         "Jinja2>=3.1.4",
         "click>=8.1.7",
     ],
+    extras_require={
+        "dev": ["pytest>=8.0"],
+    },
     entry_points={
         "console_scripts": [
-            "big-bang=bigbang.cli:bang",
+            "big-bang=bigbang.cli:cli",
         ],
     },
     python_requires=">=3.10",
