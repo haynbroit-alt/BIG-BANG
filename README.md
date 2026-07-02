@@ -36,7 +36,19 @@ genesis.yaml → parser → Universe IR → résolveur → plugins → émetteur
 
 Voir [`examples/`](examples/) : une API minimale et un SaaS CRM complet.
 
-## Stratégie & feuille de route
+## Tests
 
-La vision du projet et l'ordre des chantiers sont documentés dans
-[`docs/STRATEGY.md`](docs/STRATEGY.md).
+```bash
+pip install -e ".[dev]"
+pytest tests/
+```
+
+La suite couvre le parser, le résolveur, le merger, le pipeline de bout en
+bout (y compris le déterminisme octet par octet des sorties) et le CLI. Elle
+tourne en CI à chaque push.
+
+## Vision, stratégie & feuille de route
+
+- [`VISION.md`](VISION.md) — ce que BIG BANG est, ses quatre principes non
+  négociables, l'architecture cible Core / CLI / Studio / SDK.
+- [`docs/STRATEGY.md`](docs/STRATEGY.md) — l'ordre des chantiers.

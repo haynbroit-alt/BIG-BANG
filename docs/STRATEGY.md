@@ -1,17 +1,25 @@
 # BIG BANG — Stratégie & Feuille de route
 
-> **BIG BANG n'est pas un « générateur de code ». C'est un studio de compilation d'applications.**
->
-> L'utilisateur travaille toujours au niveau de son *univers* (`genesis.yaml`) ;
-> BIG BANG s'occupe de générer, valider, mettre à jour et documenter
-> automatiquement l'application. C'est cette expérience cohérente — plus que la
-> quantité de fonctionnalités — qui fait la différence.
+> La vision du projet — ce que BIG BANG *est*, ses quatre principes non
+> négociables (Offline First, Deterministic, Open Source, Extensible) et
+> l'architecture cible Core / CLI / Studio / SDK — est figée dans
+> [`VISION.md`](../VISION.md). Ce document-ci décrit le *comment* et
+> l'*ordre* ; il évolue, la vision non.
 
 ## Principe directeur
 
 La qualité ne vient pas du fait de travailler plus, mais de travailler **dans
 le bon ordre**. Cinq fonctionnalités bien finies valent mieux que cinquante
 incomplètes.
+
+## Décision en vigueur : consolidation avant fonctionnalités
+
+Le projet a changé de catégorie : parti comme générateur CRUD, c'est
+aujourd'hui un compilateur d'applications. Ce qui distingue un projet
+expérimental d'un projet utilisé par d'autres, c'est l'étape la moins
+visible. **Gel des fonctionnalités** jusqu'à la fin de la phase 1 : on écrit
+les tests, on écrit la documentation, on nettoie les API, on améliore les
+messages d'erreur, on stabilise le DSL — rien d'autre.
 
 ---
 
@@ -30,8 +38,9 @@ Ce qui existe déjà dans le dépôt :
 | Diff incrémental / merge par blocs | `bigbang/differ.py`, `bigbang/merger.py`, `bigbang/snapshot.py` | ✅ Fonctionnel |
 | Diagnostics | `bigbang/diagnostics.py` | ✅ Fonctionnel |
 | CLI (`big-bang bang`) | `bigbang/cli.py` | ✅ Fonctionnel |
-| **Tests automatisés** | — | ❌ **Absents** |
-| **Documentation** | `README.md` (1 ligne) | ❌ **Absente** |
+| Tests automatisés | `tests/` (34 tests : parser, resolver, merger, pipeline, CLI) | 🟡 Démarrés — à étendre |
+| CI | `.github/workflows/ci.yml` (pytest, Python 3.10 & 3.12) | ✅ Fonctionnelle |
+| Documentation | `README.md`, `VISION.md`, `docs/STRATEGY.md` | 🟡 Démarrée |
 | Interface graphique (studio) | — | ⬜ Pas commencée |
 
 Conclusion : l'architecture du cœur est en place, mais rien ne **prouve** sa
@@ -45,13 +54,20 @@ La suite du travail découle de ce constat.
 Le compilateur est la fondation. Si le cœur est fiable, tout le reste devient
 plus simple.
 
-- [ ] **Tests automatisés** — c'est le chantier n°1, car il n'en existe aucun :
-  - tests unitaires : parser, résolveur, IR builder, differ, merger ;
-  - *golden tests* : compiler `examples/*.yaml` et comparer les sorties à des
-    instantanés de référence ;
-  - test de déterminisme : deux compilations du même `genesis.yaml` doivent
-    produire des sorties strictement identiques (octet par octet) ;
-  - CI GitHub Actions qui exécute tout à chaque push.
+- [x] **Tests automatisés — socle** (`tests/`, 34 tests) :
+  - tests unitaires : parser, résolveur, merger ;
+  - chaque exemple de `examples/` compile sans erreur ;
+  - test de déterminisme : deux compilations du même `genesis.yaml`
+    produisent des sorties identiques octet par octet — **vérifié, ça tient
+    déjà**, à l'exception connue de `.bigbang.lock` (horodatage
+    `generated_at`, dette à résorber) ;
+  - les éditions utilisateur hors blocs survivent à la recompilation ;
+  - CI GitHub Actions à chaque push et pull request.
+- [ ] **Tests à étendre** — IR builder, differ, plugins individuels,
+  *golden tests* comparant les sorties à des instantanés de référence ;
+  supprimer l'horodatage de `.bigbang.lock` pour un déterminisme total.
+- [ ] **Messages d'erreur** — chaque diagnostic doit dire quoi corriger et
+  où (`path` + `hint` systématiques).
 - [ ] **DSL stable** — spécification versionnée de `genesis.yaml`
   (`schema_version`), avec un JSON Schema publié qui sert à la fois à la
   validation et, plus tard, à l'autocomplétion dans les éditeurs.
@@ -111,6 +127,11 @@ Ce sont ces fonctions qui différencient BIG BANG, pas une interface chargée :
   via yaml-language-server) ;
 - [ ] **Aperçu graphique des entités** (le graphe IR existe déjà — il suffit de
   le rendre visuellement) ;
+- [ ] **Pipeline transparent** — faire de l'IR une fonctionnalité visible, pas
+  seulement interne : dans le Studio, l'utilisateur explore chaque étape
+  (Parser → IR → Resolver → Plugins → Emitters), comprend pourquoi une
+  relation a été inférée, voit quels plugins ont enrichi l'IR, et inspecte le
+  résultat avant même la génération des fichiers ;
 - [ ] **Compilation incrémentale** (fondations déjà en place :
   `differ.py`, `snapshot.py` — à exposer et à optimiser) ;
 - [ ] **Comparaison entre deux versions d'un univers** (diff sémantique au
