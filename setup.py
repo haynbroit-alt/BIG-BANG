@@ -16,7 +16,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "big-bang=bigbang.cli:bang",
+            "big-bang=bigbang.cli:cli",
         ],
     },
     python_requires=">=3.10",
