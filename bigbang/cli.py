@@ -8,12 +8,12 @@ from . import pipeline as pp
 from .plugins import registry
 
 BANNER = r"""
-  ██████╗ ██╗ ██████╗     ██████╗  █████╗ ███╗   ██╗ ██████╗
+  ██████████╗ ██╗ ████████╗     ███████╗  ██████╗ █████╗   ██╗ ███████╗
   ██╔══██╗██║██╔════╝     ██╔══██╗██╔══██╗████╗  ██║██╔════╝
   ██████╔╝██║██║  ███╗    ██████╔╝███████║██╔██╗ ██║██║  ███╗
   ██╔══██╗██║██║   ██║    ██╔══██╗██╔══██║██║╚██╗██║██║   ██║
   ██████╔╝██║╚██████╔╝    ██████╔╝██║  ██║██║ ╚████║╚██████╔╝
-  ╚═════╝ ╚═╝ ╚═════╝     ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝
+  ╚═════╝ ╚═╝ ╚═════╝     ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚══════╝
 """
 
 
@@ -51,10 +51,18 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool, verbose: bo
 
     click.echo(f"  {click.style('Compiling', fg='cyan')} {genesis_file} ...\n")
 
-    # Run the full compilation pipeline
-    result = pp.compile(genesis_file, output, force=force, dry_run=dry_run)
+    # Run the full compilation pipeline. Anything the pipeline itself doesn't
+    # turn into a Diagnostic (a bug in a plugin, an unexpected parser edge
+    # case, ...) must still end in a clear message and a non-zero exit code —
+    # never a bare Python traceback.
+    try:
+        result = pp.compile(genesis_file, output, force=force, dry_run=dry_run)
+    except Exception as exc:
+        click.echo()
+        click.secho(f"  Compilation failed: {exc}", fg="red", bold=True)
+        sys.exit(1)
 
-    # ── Errors & warnings ─────────────────────────────────────────────────────
+    # ── Errors & warnings ────────────────────────────────────────────────
     for d in result.warnings:
         click.secho(d.coloured(), fg="yellow")
     if result.warnings:
@@ -67,7 +75,7 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool, verbose: bo
         click.secho("  Compilation failed.", fg="red", bold=True)
         sys.exit(1)
 
-    # ── Universe summary ──────────────────────────────────────────────────────
+    # ── Universe summary ─────────────────────────────────────────────────
     u = result.universe
     g = result.graph
     if u:
@@ -94,7 +102,7 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool, verbose: bo
     if u or g:
         click.echo()
 
-    # ── Phase timeline ────────────────────────────────────────────────────────
+    # ── Phase timeline ───────────────────────────────────────────────────────
     click.secho("  Compilation phases:", fg="white", bold=True)
     for phase in result.phases:
         failed = "FAILED" in phase.note
@@ -109,7 +117,7 @@ def bang(genesis_file: str, output: str, force: bool, dry_run: bool, verbose: bo
         )
     click.echo()
 
-    # ── Verbose info diagnostics ──────────────────────────────────────────────
+    # ── Verbose info diagnostics ────────────────────────────────────────────────
     if verbose and result.infos:
         click.secho("  Diagnostics:", fg="white", bold=True)
         for d in result.infos:

@@ -109,3 +109,109 @@ universe:
     assert f.type == "string"
     assert f.required is True
     assert f.computed is False
+
+
+# --- Every genesis.yaml issue gets a clear diagnostic, not a raw traceback ---
+
+
+def test_invalid_yaml_syntax_raises_a_clear_value_error(tmp_path):
+    # Unbalanced brackets — a raw yaml.YAMLError, not a ValueError, would
+    # otherwise slip past the pipeline's `except (FileNotFoundError, ValueError)`.
+    path = write_genesis(tmp_path, "universe: [name: X, type: api")
+    with pytest.raises(ValueError, match="Invalid YAML"):
+        parser.parse(path)
+
+
+def test_scalar_top_level_document_raises_a_clear_error(tmp_path):
+    # A bare scalar document (no mapping at all) must not raise a bare
+    # TypeError from `"universe" not in spec`.
+    path = write_genesis(tmp_path, "42")
+    with pytest.raises(ValueError, match="universe"):
+        parser.parse(path)
+
+
+def test_universe_key_not_a_mapping_raises_a_clear_error(tmp_path):
+    path = write_genesis(tmp_path, "universe: [1, 2, 3]")
+    with pytest.raises(ValueError, match="mapping"):
+        parser.parse(path)
+
+
+def test_duplicate_entity_name_raises(tmp_path):
+    path = write_genesis(
+        tmp_path,
+        """
+universe:
+  name: X
+  type: api
+  entities:
+    - name: Thing
+    - name: Thing
+""",
+    )
+    with pytest.raises(ValueError, match="Duplicate entity"):
+        parser.parse(path)
+
+
+def test_monetization_plan_missing_name_raises(tmp_path):
+    path = write_genesis(
+        tmp_path,
+        """
+universe:
+  name: X
+  type: api
+  monetization:
+    plans:
+      - price: 10
+""",
+    )
+    with pytest.raises(ValueError, match="must have a 'name'"):
+        parser.parse(path)
+
+
+def test_monetization_plan_missing_price_raises(tmp_path):
+    path = write_genesis(
+        tmp_path,
+        """
+universe:
+  name: X
+  type: api
+  monetization:
+    plans:
+      - name: Pro
+""",
+    )
+    with pytest.raises(ValueError, match="missing 'price'"):
+        parser.parse(path)
+
+
+def test_role_missing_name_raises(tmp_path):
+    path = write_genesis(
+        tmp_path,
+        """
+universe:
+  name: X
+  type: api
+  roles:
+    - permissions: [read]
+""",
+    )
+    with pytest.raises(ValueError, match="Each role must have a 'name'"):
+        parser.parse(path)
+
+
+def test_auth_user_field_invalid_type_raises(tmp_path):
+    path = write_genesis(
+        tmp_path,
+        """
+universe:
+  name: X
+  type: api
+  auth:
+    enabled: true
+    user_fields:
+      - name: avatar
+        type: varchar
+""",
+    )
+    with pytest.raises(ValueError, match="varchar"):
+        parser.parse(path)

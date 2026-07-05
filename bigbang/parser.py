@@ -21,17 +21,25 @@ def parse(genesis_file: str) -> Universe:
         raise FileNotFoundError(f"Genesis file not found: {genesis_file}")
 
     with open(path, "r", encoding="utf-8") as f:
-        spec = yaml.safe_load(f)
+        try:
+            spec = yaml.safe_load(f)
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Invalid YAML in {genesis_file}: {exc}") from exc
 
-    if not spec or "universe" not in spec:
-        raise ValueError("Invalid genesis file: missing top-level 'universe' key")
+    if not isinstance(spec, dict) or "universe" not in spec:
+        got = "an empty file" if spec is None else f"a {type(spec).__name__}"
+        raise ValueError(
+            f"Invalid genesis file: expected a top-level 'universe' key, got {got}"
+        )
 
     raw = spec["universe"]
+    if not isinstance(raw, dict):
+        raise ValueError(f"'universe' must be a mapping, got a {type(raw).__name__}")
     _validate_raw(raw)
     return _build(raw)
 
 
-# ── Validation ────────────────────────────────────────────────────────────────
+# ── Validation ─────────────────────────────────────────────────────────────
 
 def _validate_raw(raw: dict) -> None:
     if "name" not in raw:
@@ -39,9 +47,15 @@ def _validate_raw(raw: dict) -> None:
     if "type" not in raw:
         raise ValueError("Universe must have a 'type'")
 
+    seen_entity_names: set[str] = set()
     for entity in raw.get("entities", []):
         if "name" not in entity:
             raise ValueError("Each entity must have a 'name'")
+        if entity["name"] in seen_entity_names:
+            raise ValueError(
+                f"Duplicate entity name: '{entity['name']}' — entity names must be unique"
+            )
+        seen_entity_names.add(entity["name"])
         for field in entity.get("fields", []):
             if "name" not in field:
                 raise ValueError(f"Field in entity '{entity['name']}' is missing 'name'")
@@ -59,6 +73,18 @@ def _validate_raw(raw: dict) -> None:
         if not flow.get("steps"):
             raise ValueError(f"Flow '{flow['name']}' must have at least one step")
 
+    for role in raw.get("roles", []):
+        if "name" not in role:
+            raise ValueError("Each role must have a 'name'")
+
+    monetization = raw.get("monetization")
+    if monetization:
+        for plan in monetization.get("plans", []):
+            if "name" not in plan:
+                raise ValueError("Each monetization plan must have a 'name'")
+            if "price" not in plan:
+                raise ValueError(f"Monetization plan '{plan['name']}' is missing 'price'")
+
     auth = raw.get("auth", {})
     if auth.get("enabled"):
         provider = auth.get("provider", "jwt")
@@ -67,9 +93,18 @@ def _validate_raw(raw: dict) -> None:
                 f"Unknown auth provider '{provider}'. "
                 f"Valid: {', '.join(sorted(VALID_AUTH_PROVIDERS))}"
             )
+    for field in auth.get("user_fields", []):
+        if "name" not in field:
+            raise ValueError("Each auth.user_fields entry must have a 'name'")
+        ftype = field.get("type", "string")
+        if ftype not in VALID_FIELD_TYPES:
+            raise ValueError(
+                f"Invalid field type '{ftype}' for auth.user_fields.'{field['name']}'. "
+                f"Valid: {', '.join(sorted(VALID_FIELD_TYPES))}"
+            )
 
 
-# ── Builder: raw dict → Universe IR ──────────────────────────────────────────
+# ── Builder: raw dict → Universe IR ────────────────────────────────────
 
 def _build(raw: dict) -> Universe:
     return Universe(

@@ -31,3 +31,25 @@ def test_bang_compiles_example(tmp_path):
 def test_plugins_command_lists_registry():
     result = CliRunner().invoke(cli, ["plugins"])
     assert result.exit_code == 0
+
+
+def test_bang_reports_a_clean_error_instead_of_a_traceback_on_unexpected_failure(
+    tmp_path, monkeypatch
+):
+    # Anything that escapes the pipeline as a bug (not a Diagnostic) must
+    # still exit cleanly with a clear message, never a bare traceback.
+    import bigbang.cli as cli_module
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated unexpected pipeline bug")
+
+    monkeypatch.setattr(cli_module.pp, "compile", _boom)
+
+    result = CliRunner().invoke(cli, ["bang", EXAMPLE, "--output", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Compilation failed" in result.output
+    assert "simulated unexpected pipeline bug" in result.output
+    # Before the fix, this RuntimeError propagated straight out of the
+    # command instead of being turned into a clean sys.exit(1).
+    assert not isinstance(result.exception, RuntimeError)
