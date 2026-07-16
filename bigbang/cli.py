@@ -200,6 +200,54 @@ def serve(host: str, port: int, reload: bool) -> None:
     )
 
 
+@cli.command(name="studio")
+@click.argument("description")
+@click.option("--output", "-o", default=None, help="Write genesis.yaml to this path (default: stdout)")
+@click.option("--model", default="claude-opus-4-8", show_default=True, help="Claude model to use")
+def studio_cmd(description: str, output: str | None, model: str) -> None:
+    """Generate a genesis.yaml from a natural-language description.
+
+    \b
+    Requires ANTHROPIC_API_KEY environment variable.
+
+    \b
+    Examples:
+      big-bang studio "A SaaS CRM with deals, contacts, and email flows"
+      big-bang studio "A todo API with tags and priorities" -o genesis.yaml
+      big-bang studio "An e-commerce platform with subscriptions" --model claude-haiku-4-5
+    """
+    from . import studio as _studio
+
+    click.secho(BANNER, fg="magenta", bold=True)
+    click.secho("  Studio — natural language → genesis.yaml\n", fg="white")
+    click.secho(f"  Generating universe for: {click.style(description[:60], fg='cyan')}\n", fg="white")
+
+    try:
+        buf = None
+        if output is None:
+            import io
+            buf = io.StringIO()
+            yaml_content = _studio.generate(description, model=model, stream_to=None)
+        else:
+            yaml_content = _studio.generate(description, model=model)
+    except (ImportError, ValueError) as exc:
+        click.secho(f"  Error: {exc}", fg="red")
+        sys.exit(1)
+    except Exception as exc:
+        click.secho(f"  Unexpected error: {exc}", fg="red")
+        sys.exit(1)
+
+    if output:
+        from pathlib import Path
+        Path(output).write_text(yaml_content, encoding="utf-8")
+        click.secho(f"  ✨ genesis.yaml written to {click.style(output, fg='cyan', bold=True)}", fg="magenta", bold=True)
+        click.secho("\n  Next steps:", fg="white", bold=True)
+        click.echo(f"  1.  big-bang bang {output}")
+        click.echo()
+    else:
+        click.echo(yaml_content)
+
+
 @cli.command(name="plugins")
 def list_plugins() -> None:
     """List all registered plugins with their dependency declarations."""

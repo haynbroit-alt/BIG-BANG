@@ -8,6 +8,7 @@ GET  /plugins               — registered plugins
 POST /validate              — parse + resolve only, no file output
 POST /compile               — full 8-phase compilation
 POST /compile/dry-run       — compile without writing files (returns would-be paths)
+POST /studio/generate       — natural language → genesis.yaml via Claude
 
 Transport
 ---------
@@ -21,9 +22,11 @@ from typing import Annotated, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from . import pipeline as pp
 from . import serializers as ser
+from . import studio
 from .plugins import registry
 from .parser import parse as _parse
 from .resolver import resolve
@@ -165,3 +168,57 @@ async def compile_dry_run(request: Request) -> JSONResponse:
         Path(tmp_input).unlink(missing_ok=True)
 
     return JSONResponse(ser.compilation_result(result))
+
+
+# ── Studio ────────────────────────────────────────────────────────────────────
+
+class _StudioRequest(BaseModel):
+    description: str
+    model: str = "claude-opus-4-8"
+
+
+@app.post("/studio/generate", tags=["studio"])
+async def studio_generate(body: _StudioRequest) -> JSONResponse:
+    """Generate a genesis.yaml from a natural-language description via Claude.
+
+    Requires the ``anthropic`` package and an ``ANTHROPIC_API_KEY`` env var.
+    The generated YAML is automatically validated through the compiler pipeline.
+    """
+    try:
+        yaml_content = studio.generate(body.description, model=body.model)
+    except (ImportError, ValueError) as exc:
+        return JSONResponse(
+            {"success": False, "yaml": None, "universe": None, "warnings": [],
+             "errors": [{"code": "E000", "message": str(exc)}]},
+            status_code=503,
+        )
+    except Exception as exc:
+        return JSONResponse(
+            {"success": False, "yaml": None, "universe": None, "warnings": [],
+             "errors": [{"code": "E000", "message": str(exc)}]},
+            status_code=500,
+        )
+
+    tmp_path = _write_temp(yaml_content)
+    try:
+        universe = _parse(tmp_path)
+        diags = DiagnosticEngine()
+        resolve(universe, diags)
+        return JSONResponse({
+            "success": True,
+            "yaml": yaml_content,
+            "universe": ser.universe(universe),
+            "warnings": [ser.diagnostic(d) for d in diags.warnings],
+            "errors": [],
+        })
+    except (ValueError, KeyError, Exception) as exc:
+        return JSONResponse({
+            "success": False,
+            "yaml": yaml_content,
+            "universe": None,
+            "warnings": [],
+            "errors": [{"code": "E000",
+                        "message": f"Generated YAML failed validation: {exc}"}],
+        })
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
